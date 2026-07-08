@@ -32,7 +32,7 @@ export default function Landing() {
                 alt="SmartBudget Logo"
                 className="w-10 h-10 object-contain"
                 />
-            <span className="font-display text-3xl font-extrabold tracking-tight">SmartBudget</span>
+            <span className="font-display text-2xl ">SmartBudget</span>
           </div>
           <nav className="hidden sm:flex items-center gap-8 text-sm font-medium">
             
