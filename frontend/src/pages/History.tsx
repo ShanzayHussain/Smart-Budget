@@ -1,0 +1,214 @@
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  query,
+  updateDoc,
+  where,
+} from "firebase/firestore";
+import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
+import logo from "../assets/logo.png";
+
+interface Expense {
+  id: string;
+  amount: number;
+  category: string;
+  mood: string;
+  createdAt: string;
+  timestamp?: { toDate?: () => Date };
+}
+
+const CATEGORY_ICONS: Record<string, string> = {
+  Food: "🍔",
+  Transport: "🚌",
+  Shopping: "🛍️",
+  Entertainment: "🎬",
+  Other: "📦",
+};
+
+const MOOD_ICONS: Record<string, string> = {
+  Happy: "😊",
+  Neutral: "😐",
+  Stressed: "😩",
+  Impulsive: "🥴",
+  Tired: "😴",
+};
+
+export default function History() {
+  const { user } = useAuth();
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editAmount, setEditAmount] = useState("");
+
+  useEffect(() => {
+    if (!user) return;
+    fetchExpenses();
+  }, [user]);
+
+  async function fetchExpenses() {
+    setLoading(true);
+    try {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const q = query(collection(db, "expenses"), where("userId", "==", user!.uid));
+      const snap = await getDocs(q);
+      const rows: Expense[] = snap.docs
+        .map((d) => ({
+          id: d.id,
+          amount: d.data().amount,
+          category: d.data().category,
+          mood: d.data().mood,
+          createdAt: d.data().createdAt,
+          timestamp: d.data().timestamp,
+        }))
+        .filter((expense) => {
+          const expenseDate =
+            expense.timestamp?.toDate?.() ??
+            (expense.createdAt ? new Date(expense.createdAt) : null);
+
+          return expenseDate !== null && expenseDate >= startOfMonth;
+        });
+      // most recent first
+      rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setExpenses(rows);
+    } catch (err) {
+      console.error("Expense history failed to load:", err);
+      setExpenses([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm("Delete this expense?")) return;
+    await deleteDoc(doc(db, "expenses", id));
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+  }
+
+  function startEdit(expense: Expense) {
+    setEditingId(expense.id);
+    setEditAmount(String(expense.amount));
+  }
+
+  async function saveEdit(id: string) {
+    const value = Number(editAmount);
+    if (!value || value <= 0) return;
+    await updateDoc(doc(db, "expenses", id), { amount: value });
+    setExpenses((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, amount: value } : e))
+    );
+    setEditingId(null);
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-[#b8b4ad] via-[#dfddd9] to-[#f5f4f1] font-body">
+      <header className="sticky top-0 z-10 bg-white backdrop-blur border-b border-[#F6F3EC] shadow-md">
+        <div className="max-w-4xl mx-auto flex items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-2">
+            <img src={logo} alt="SmartBudget Logo" className="w-8 h-8 object-contain" />
+            <span className="font-display text-xl font-extrabold tracking-tight">
+              SmartBudget
+            </span>
+          </div>
+          <Link
+            to="/dashboard"
+            className="text-sm font-medium text-[#1F2A44]/70 hover:text-[#B34A2E] transition-colors"
+          >
+            Back to dashboard
+          </Link>
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-6 py-10">
+        <div className="flex justify-between items-baseline mb-6">
+          <h1 className="font-display text-2xl font-semibold">This month's expenses</h1>
+          <Link
+            to="/log-expense"
+            className="bg-[#0c0c0e] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#B34A2E] transition-colors"
+          >
+            + Log expense
+          </Link>
+        </div>
+
+        {loading ? (
+          <p className="font-mono text-sm text-[#1F2A44]/60">Loading…</p>
+        ) : expenses.length === 0 ? (
+          <div className="bg-white/70 rounded-2xl border border-gray-200 p-8 text-center">
+            <p className="text-[#1F2A44]/70">No expenses logged yet this month.</p>
+          </div>
+        ) : (
+          <div className="bg-white/90 rounded-2xl shadow-md border border-gray-200 divide-y divide-gray-100">
+            {expenses.map((e) => (
+              <div key={e.id} className="flex items-center justify-between px-6 py-4">
+                <div className="flex items-center gap-4">
+                  <span className="text-2xl">{CATEGORY_ICONS[e.category] ?? "📦"}</span>
+                  <div>
+                    <p className="font-medium text-sm">{e.category}</p>
+                    <p className="text-xs text-[#1F2A44]/50">
+                      {new Date(e.createdAt).toLocaleDateString(undefined, {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                      })}{" "}
+                      · {MOOD_ICONS[e.mood] ?? ""} {e.mood}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {editingId === e.id ? (
+                    <>
+                      <input
+                        type="number"
+                        value={editAmount}
+                        onChange={(ev) => setEditAmount(ev.target.value)}
+                        className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm font-mono"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => saveEdit(e.id)}
+                        className="text-xs font-medium text-[#3F7D58] hover:underline"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditingId(null)}
+                        className="text-xs font-medium text-[#1F2A44]/50 hover:underline"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-mono font-semibold text-sm">
+                        {e.amount.toLocaleString()}
+                      </span>
+                      <button
+                        onClick={() => startEdit(e)}
+                        className="text-xs font-medium text-[#1F2A44]/50 hover:text-[#B34A2E]"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(e.id)}
+                        className="text-xs font-medium text-[#1F2A44]/50 hover:text-[#B34A2E]"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
