@@ -4,6 +4,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import logo from "../assets/logo.png";
+import { getMonthKey } from "../lib/date";
 
 const CATEGORIES = ["Food", "Transport", "Shopping", "Entertainment", "Other"];
 
@@ -22,13 +23,14 @@ export default function SetBudget() {
 
   // pre-fill if the user already set a budget before (editable, not one-time-only)
   useEffect(() => {
-    if (!user) return;
-    (async () => {
-      const snap = await getDoc(doc(db, "users", user.uid));
-      const data = snap.data();
-      if (data?.monthlyBudget) {
-        setTotalBudget(String(data.monthlyBudget));
-      }
+  if (!user) return;
+  (async () => {
+    const snap = await getDoc(doc(db, "users", user.uid));
+    const data = snap.data();
+    const currentMonthKey = getMonthKey();
+
+    if (data?.budgetMonth === currentMonthKey) {
+      if (data?.monthlyBudget) setTotalBudget(String(data.monthlyBudget));
       if (data?.categoryBudgets) {
         setUseCategorySplit(true);
         setCategoryBudgets((prev) => ({
@@ -38,9 +40,12 @@ export default function SetBudget() {
           ),
         }));
       }
-      setFetching(false);
-    })();
-  }, [user]);
+    }
+    setFetching(false);
+  })();
+}, [user]);
+
+
 
   const categorySum = Object.values(categoryBudgets).reduce(
     (sum, v) => sum + (Number(v) || 0),
@@ -69,6 +74,7 @@ export default function SetBudget() {
         doc(db, "users", user!.uid),
         {
           monthlyBudget: total,
+          budgetMonth: getMonthKey(),
           categoryBudgets: useCategorySplit
             ? Object.fromEntries(
                 Object.entries(categoryBudgets)

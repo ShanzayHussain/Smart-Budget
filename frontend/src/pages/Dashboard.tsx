@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { getMonthKey, getMonthLabel } from "../lib/date";
 import {
   collection,
   doc,
@@ -110,8 +111,10 @@ export default function Dashboard() {
 
   const [name, setName] = useState("");
   const [totalBudget, setTotalBudget] = useState<number | null>(null);
+  const [lastSavedBudget, setLastSavedBudget] = useState<number | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasEverSetBudget, setHasEverSetBudget] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -121,7 +124,11 @@ export default function Dashboard() {
         const userSnap = await getDoc(doc(db, "users", user.uid));
         const userData = userSnap.data();
         setName(userData?.name || user.displayName || "there");
-        setTotalBudget(userData?.monthlyBudget ?? null);
+        const currentMonthKey = getMonthKey();
+        const budgetIsCurrent = userData?.budgetMonth === currentMonthKey;
+        setTotalBudget(budgetIsCurrent ? userData?.monthlyBudget ?? null : null);
+        setLastSavedBudget(userData?.monthlyBudget ?? null);
+        setHasEverSetBudget(!!userData?.monthlyBudget);
 
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -166,22 +173,10 @@ export default function Dashboard() {
     );
   }
 
-  if (totalBudget === null) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-[#b8b4ad] via-[#dfddd9] to-[#f5f4f1] px-6">
-        <p className="text-[#1F2A44]/80">You haven't set a budget yet.</p>
-        <Link
-          to="/set-budget"
-          className="bg-[#0c0c0e] text-white px-6 py-2.5 rounded-lg font-medium text-sm hover:bg-[#B34A2E] transition-colors"
-        >
-          Set your budget
-        </Link>
-      </div>
-    );
-  }
-
   const spentSoFar = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const stats = calculateBudgetStats(totalBudget, spentSoFar);
+  const needsCurrentBudget = totalBudget === null;
+  const budgetForDashboard = totalBudget ?? lastSavedBudget ?? 0;
+  const stats = calculateBudgetStats(budgetForDashboard, spentSoFar);
   const risk = placeholderRiskEstimate(stats);
   const riskStyle = RISK_STYLES[risk.level];
   const category = categoryBreakdown(expenses);
@@ -289,57 +284,88 @@ export default function Dashboard() {
           <div className="md:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
             <div className="flex justify-between items-center mb-5">
               <h2 className="font-display text-base font-semibold">Budget Overview</h2>
-              <span className="text-xs font-mono bg-gray-100 text-[#1F2A44]/60 px-2.5 py-1 rounded-full">
-                {stats.daysLeft} days left
-              </span>
-            </div>
-
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <p className="text-xs text-[#1F2A44]/50 mb-1">Spent so far</p>
-                <p className="font-mono text-3xl font-semibold">
-                  PKR {spentSoFar.toLocaleString()}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-[#1F2A44]/50 mb-1">Total budget</p>
-                <p className="font-mono text-sm font-medium text-[#1F2A44]/70">
-                  PKR {totalBudget.toLocaleString()}
-                </p>
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/set-budget"
+                  className="text-xs font-medium text-[#1F2A44]/50 hover:text-[#B34A2E] transition-colors"
+                >
+                  {needsCurrentBudget ? "Set budget" : "Edit budget"}
+                </Link>
+                <span className="text-xs font-mono bg-gray-100 text-[#1F2A44]/60 px-2.5 py-1 rounded-full">
+                  {stats.daysLeft} days left
+                </span>
               </div>
             </div>
 
-            <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden mb-2">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${stats.percentUsed}%`,
-                  backgroundColor:
-                    stats.percentUsed > 90 ? "#B34A2E" : stats.percentUsed > 60 ? "#E8A33D" : "#3F7D58",
-                }}
-              />
-            </div>
-            <div className="flex justify-between text-xs font-mono text-[#1F2A44]/50 mb-6">
-              <span>{stats.percentUsed.toFixed(0)}% used</span>
-              <span>PKR {Math.max(totalBudget - spentSoFar, 0).toLocaleString()} remaining</span>
-            </div>
+            {needsCurrentBudget ? (
+              <div className="pt-1">
+                <p className="font-display text-xl font-semibold mb-2">
+                  {hasEverSetBudget
+                    ? `Set your budget for ${getMonthLabel()}`
+                    : "Let's set up your first budget"}
+                </p>
+                <p className="text-sm text-[#1F2A44]/60 mb-5 max-w-xl">
+                  {hasEverSetBudget
+                    ? "A new month has started, so it's time for a fresh budget. Your past spending and history are still saved."
+                    : "Once you set a monthly budget, your dashboard will start tracking your spending pace and overspending risk automatically."}
+                </p>
+                <Link
+                  to="/set-budget"
+                  className="inline-block bg-[#0c0c0e] text-white px-5 py-2.5 rounded-lg font-medium text-sm hover:bg-[#B34A2E] transition-colors"
+                >
+                  Set your budget
+                </Link>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <p className="text-xs text-[#1F2A44]/50 mb-1">Spent so far</p>
+                    <p className="font-mono text-3xl font-semibold">
+                      PKR {spentSoFar.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-[#1F2A44]/50 mb-1">Total budget</p>
+                    <p className="font-mono text-sm font-medium text-[#1F2A44]/70">
+                      PKR {budgetForDashboard.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-4 pt-5 border-t border-gray-100">
-              <div>
-                <p className="text-xs text-[#1F2A44]/50 mb-1">Actual average</p>
-                <p className="font-mono text-lg font-semibold">
-                  PKR {stats.actualDailyAverage.toFixed(0)}
-                  <span className="text-xs text-[#1F2A44]/40 font-normal">/day</span>
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-[#1F2A44]/50 mb-1">Safe target</p>
-                <p className="font-mono text-lg font-semibold text-[#3F7D58]">
-                  PKR {stats.safeDailyPace.toFixed(0)}
-                  <span className="text-xs text-[#1F2A44]/40 font-normal">/day</span>
-                </p>
-              </div>
-            </div>
+                <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${stats.percentUsed}%`,
+                      backgroundColor:
+                        stats.percentUsed > 90 ? "#B34A2E" : stats.percentUsed > 60 ? "#E8A33D" : "#3F7D58",
+                    }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs font-mono text-[#1F2A44]/50 mb-6">
+                  <span>{stats.percentUsed.toFixed(0)}% used</span>
+                  <span>PKR {Math.max(budgetForDashboard - spentSoFar, 0).toLocaleString()} remaining</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 pt-5 border-t border-gray-100">
+                  <div>
+                    <p className="text-xs text-[#1F2A44]/50 mb-1">Actual average</p>
+                    <p className="font-mono text-lg font-semibold">
+                      PKR {stats.actualDailyAverage.toFixed(0)}
+                      <span className="text-xs text-[#1F2A44]/40 font-normal">/day</span>
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-[#1F2A44]/50 mb-1">Safe target</p>
+                    <p className="font-mono text-lg font-semibold text-[#3F7D58]">
+                      PKR {stats.safeDailyPace.toFixed(0)}
+                      <span className="text-xs text-[#1F2A44]/40 font-normal">/day</span>
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           <div className={`bg-white rounded-2xl shadow-sm border p-6 flex flex-col ${riskStyle.border}`}>
@@ -428,7 +454,7 @@ export default function Dashboard() {
                   Cumulative Spending Month-to-Date
                 </h3>
                 <span className="text-xs font-mono bg-[#B34A2E]/10 text-[#B34A2E] px-2.5 py-1 rounded-full">
-                  Ceiling: PKR {totalBudget.toLocaleString()}
+                  Ceiling: PKR {budgetForDashboard.toLocaleString()}
                 </span>
               </div>
               <p className="text-xs text-[#1F2A44]/40 mb-4">
@@ -447,8 +473,8 @@ export default function Dashboard() {
                         annotations: {
                           ceiling: {
                             type: "line",
-                            yMin: totalBudget,
-                            yMax: totalBudget,
+                            yMin: budgetForDashboard,
+                            yMax: budgetForDashboard,
                             borderColor: "#B34A2E",
                             borderWidth: 1.5,
                             borderDash: [6, 4],
@@ -482,7 +508,7 @@ export default function Dashboard() {
                           font: { size: 10 },
                           callback: (val: any) => (val >= 1000 ? `${val / 1000}k` : val),
                         },
-                        suggestedMax: totalBudget * 1.1,
+                        suggestedMax: budgetForDashboard * 1.1,
                       },
                       x: { grid: { display: false }, ticks: { font: { size: 10 } } },
                     },

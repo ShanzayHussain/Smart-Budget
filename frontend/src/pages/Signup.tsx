@@ -6,7 +6,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "../firebase";
-import logo from "../assets/logo.png";
+import logo from "../assets/logo2.png";
 
 export default function Signup() {
   const [name, setName] = useState("");

@@ -19,7 +19,6 @@ interface Expense {
   category: string;
   mood: string;
   createdAt: string;
-  timestamp?: { toDate?: () => Date };
 }
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -38,6 +37,26 @@ const MOOD_ICONS: Record<string, string> = {
   Tired: "😴",
 };
 
+// groups a flat list of expenses into { "2026-07": [...], "2026-06": [...] }
+// keyed so they sort correctly, with a display label attached
+function groupByMonth(expenses: Expense[]) {
+  const groups: Record<string, { label: string; items: Expense[] }> = {};
+
+  for (const e of expenses) {
+    const d = new Date(e.createdAt);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+    if (!groups[key]) groups[key] = { label, items: [] };
+    groups[key].items.push(e);
+  }
+
+  // newest month first
+  return Object.entries(groups)
+    .sort(([a], [b]) => (a > b ? -1 : 1))
+    .map(([key, group]) => ({ key, ...group }));
+}
+
 export default function History() {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -52,37 +71,19 @@ export default function History() {
 
   async function fetchExpenses() {
     setLoading(true);
-    try {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-      const q = query(collection(db, "expenses"), where("userId", "==", user!.uid));
-      const snap = await getDocs(q);
-      const rows: Expense[] = snap.docs
-        .map((d) => ({
-          id: d.id,
-          amount: d.data().amount,
-          category: d.data().category,
-          mood: d.data().mood,
-          createdAt: d.data().createdAt,
-          timestamp: d.data().timestamp,
-        }))
-        .filter((expense) => {
-          const expenseDate =
-            expense.timestamp?.toDate?.() ??
-            (expense.createdAt ? new Date(expense.createdAt) : null);
-
-          return expenseDate !== null && expenseDate >= startOfMonth;
-        });
-      // most recent first
-      rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setExpenses(rows);
-    } catch (err) {
-      console.error("Expense history failed to load:", err);
-      setExpenses([]);
-    } finally {
-      setLoading(false);
-    }
+    // no date filter here on purpose — History shows every month, grouped below
+    const q = query(collection(db, "expenses"), where("userId", "==", user!.uid));
+    const snap = await getDocs(q);
+    const rows: Expense[] = snap.docs.map((d) => ({
+      id: d.id,
+      amount: d.data().amount,
+      category: d.data().category,
+      mood: d.data().mood,
+      createdAt: d.data().createdAt,
+    }));
+    rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    setExpenses(rows);
+    setLoading(false);
   }
 
   async function handleDelete(id: string) {
@@ -100,15 +101,15 @@ export default function History() {
     const value = Number(editAmount);
     if (!value || value <= 0) return;
     await updateDoc(doc(db, "expenses", id), { amount: value });
-    setExpenses((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, amount: value } : e))
-    );
+    setExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, amount: value } : e)));
     setEditingId(null);
   }
 
+  const monthGroups = groupByMonth(expenses);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#b8b4ad] via-[#dfddd9] to-[#f5f4f1] font-body">
-      <header className="sticky top-0 z-10 bg-white backdrop-blur border-b border-[#F6F3EC] shadow-md">
+      <header className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-4xl mx-auto flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-2">
             <img src={logo} alt="SmartBudget Logo" className="w-8 h-8 object-contain" />
@@ -127,7 +128,7 @@ export default function History() {
 
       <main className="max-w-4xl mx-auto px-6 py-10">
         <div className="flex justify-between items-baseline mb-6">
-          <h1 className="font-display text-2xl font-semibold">This month's expenses</h1>
+          <h1 className="font-display text-2xl font-semibold">Expense history</h1>
           <Link
             to="/log-expense"
             className="bg-[#0c0c0e] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#B34A2E] transition-colors"
@@ -140,72 +141,91 @@ export default function History() {
           <p className="font-mono text-sm text-[#1F2A44]/60">Loading…</p>
         ) : expenses.length === 0 ? (
           <div className="bg-white/70 rounded-2xl border border-gray-200 p-8 text-center">
-            <p className="text-[#1F2A44]/70">No expenses logged yet this month.</p>
+            <p className="text-[#1F2A44]/70">No expenses logged yet.</p>
           </div>
         ) : (
-          <div className="bg-white/90 rounded-2xl shadow-md border border-gray-200 divide-y divide-gray-100">
-            {expenses.map((e) => (
-              <div key={e.id} className="flex items-center justify-between px-6 py-4">
-                <div className="flex items-center gap-4">
-                  <span className="text-2xl">{CATEGORY_ICONS[e.category] ?? "📦"}</span>
-                  <div>
-                    <p className="font-medium text-sm">{e.category}</p>
-                    <p className="text-xs text-[#1F2A44]/50">
-                      {new Date(e.createdAt).toLocaleDateString(undefined, {
-                        weekday: "short",
-                        month: "short",
-                        day: "numeric",
-                      })}{" "}
-                      · {MOOD_ICONS[e.mood] ?? ""} {e.mood}
-                    </p>
+          <div className="space-y-8">
+            {monthGroups.map((group) => {
+              const monthTotal = group.items.reduce((sum, e) => sum + e.amount, 0);
+              return (
+                <div key={group.key}>
+                  <div className="flex items-baseline justify-between mb-3 px-1">
+                    <h2 className="font-display text-lg font-semibold text-[#1F2A44]">
+                      {group.label}
+                    </h2>
+                    <span className="font-mono text-xs text-[#1F2A44]/50">
+                      {group.items.length} expense{group.items.length === 1 ? "" : "s"} · PKR{" "}
+                      {monthTotal.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="bg-white/90 rounded-2xl shadow-md border border-gray-200 divide-y divide-gray-100">
+                    {group.items.map((e) => (
+                      <div key={e.id} className="flex items-center justify-between px-6 py-4">
+                        <div className="flex items-center gap-4">
+                          <span className="text-2xl">{CATEGORY_ICONS[e.category] ?? "📦"}</span>
+                          <div>
+                            <p className="font-medium text-sm">{e.category}</p>
+                            <p className="text-xs text-[#1F2A44]/50">
+                              {new Date(e.createdAt).toLocaleDateString(undefined, {
+                                weekday: "short",
+                                month: "short",
+                                day: "numeric",
+                              })}{" "}
+                              · {MOOD_ICONS[e.mood] ?? ""} {e.mood}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          {editingId === e.id ? (
+                            <>
+                              <input
+                                type="number"
+                                value={editAmount}
+                                onChange={(ev) => setEditAmount(ev.target.value)}
+                                className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm font-mono"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => saveEdit(e.id)}
+                                className="text-xs font-medium text-[#3F7D58] hover:underline"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => setEditingId(null)}
+                                className="text-xs font-medium text-[#1F2A44]/50 hover:underline"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <span className="font-mono font-semibold text-sm">
+                                {e.amount.toLocaleString()}
+                              </span>
+                              <button
+                                onClick={() => startEdit(e)}
+                                className="text-xs font-medium text-[#1F2A44]/50 hover:text-[#B34A2E]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDelete(e.id)}
+                                className="text-xs font-medium text-[#1F2A44]/50 hover:text-[#B34A2E]"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-
-                <div className="flex items-center gap-3">
-                  {editingId === e.id ? (
-                    <>
-                      <input
-                        type="number"
-                        value={editAmount}
-                        onChange={(ev) => setEditAmount(ev.target.value)}
-                        className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm font-mono"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => saveEdit(e.id)}
-                        className="text-xs font-medium text-[#3F7D58] hover:underline"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => setEditingId(null)}
-                        className="text-xs font-medium text-[#1F2A44]/50 hover:underline"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-mono font-semibold text-sm">
-                        {e.amount.toLocaleString()}
-                      </span>
-                      <button
-                        onClick={() => startEdit(e)}
-                        className="text-xs font-medium text-[#1F2A44]/50 hover:text-[#B34A2E]"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(e.id)}
-                        className="text-xs font-medium text-[#1F2A44]/50 hover:text-[#B34A2E]"
-                      >
-                        Delete
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
