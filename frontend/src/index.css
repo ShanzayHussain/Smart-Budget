@@ -1,4 +1,4 @@
-@import "tailwindcss";
+/* @import "tailwindcss";
 
 @theme {
   --font-display: "Fraunces", serif;
@@ -10,6 +10,41 @@ body {
   font-family: var(--font-body);
   background-color: #F6F3EC;
   color: #1F2A44;
+}
+
+.sparkline-path {
+  stroke-dasharray: 500;
+  stroke-dashoffset: 500;
+  animation: draw-line 1.4s ease-out forwards;
+  animation-delay: 0.3s;
+}
+
+@keyframes draw-line {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sparkline-path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+} */
+
+
+ @import "tailwindcss";
+
+@theme {
+  --font-display: "Fraunces", serif;
+  --font-body: "Inter", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: #F5F6F8;
+  color: #0B1220;
 }
 
 .sparkline-path {

@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import riskRouter from "./routes/risk";
+import riskHistoryRouter from "./routes/riskHistory";
+import chatRouter from "./routes/chat";
 
 dotenv.config();
 
@@ -14,6 +16,8 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/risk", riskRouter);
+app.use("/api/risk-history", riskHistoryRouter);
+app.use("/api/chat", chatRouter);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

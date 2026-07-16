@@ -8,6 +8,7 @@ import SetBudget from "./pages/SetBudget";
 import Dashboard from "./pages/Dashboard";
 import LogExpense from "./pages/LogExpense";
 import History from "./pages/History";
+import Insights from "./pages/Insights";
 
 function App() {
   return (
@@ -50,6 +51,14 @@ function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                  path="/insights"
+                  element={
+                    <ProtectedRoute>
+                      <Insights />
+                    </ProtectedRoute>
+                  }
+                />
               
         </Routes>
       </BrowserRouter>
