@@ -6,6 +6,7 @@ import {
   doc,
   getDocs,
   query,
+  Timestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -21,15 +22,25 @@ interface Expense {
   createdAt: string;
 }
 
-const CATEGORY_ICONS: Record<string, string> = {
-  Food: "🍔",
-  Dining: "🍽️",
-  Transport: "🚌",
-  Shopping: "🛍️",
-  Entertainment: "🎬",
-  Education: "📚",
-  Other: "📦",
-};
+const CATEGORIES = [
+  { label: "Food", icon: "🍔" },
+  { label: "Transport", icon: "🚌" },
+  { label: "Shopping", icon: "🛍️" },
+  { label: "Entertainment", icon: "🎬" },
+  { label: "Other", icon: "📦" },
+];
+
+const MOODS = [
+  { label: "Happy", icon: "😊" },
+  { label: "Neutral", icon: "😐" },
+  { label: "Stressed", icon: "😩" },
+  { label: "Impulsive", icon: "🥴" },
+  { label: "Tired", icon: "😴" },
+];
+
+const CATEGORY_ICONS: Record<string, string> = Object.fromEntries(
+  CATEGORIES.map((c) => [c.label, c.icon])
+);
 
 const MOOD_STYLES: Record<string, string> = {
   Happy: "bg-[#16815F]/10 text-[#16815F]",
@@ -42,7 +53,6 @@ const MOOD_STYLES: Record<string, string> = {
 };
 
 // groups a flat list of expenses into { "2026-07": [...], "2026-06": [...] }
-// keyed so they sort correctly, with a display label attached
 function groupByMonth(expenses: Expense[]) {
   const groups: Record<string, { label: string; items: Expense[] }> = {};
 
@@ -55,19 +65,30 @@ function groupByMonth(expenses: Expense[]) {
     groups[key].items.push(e);
   }
 
-  // newest month first
   return Object.entries(groups)
     .sort(([a], [b]) => (a > b ? -1 : 1))
     .map(([key, group]) => ({ key, ...group }));
+}
+
+// "2026-07-19T14:32:00.000Z" -> "2026-07-19", for the date input's value
+function toDateInputValue(isoString: string) {
+  return isoString.slice(0, 10);
 }
 
 export default function History() {
   const { user } = useAuth();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editAmount, setEditAmount] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [editDate, setEditDate] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [editMood, setEditMood] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editError, setEditError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -76,7 +97,6 @@ export default function History() {
 
   async function fetchExpenses() {
     setLoading(true);
-    // no date filter here on purpose — History shows every month, grouped below
     const q = query(collection(db, "expenses"), where("userId", "==", user!.uid));
     const snap = await getDocs(q);
     const rows: Expense[] = snap.docs.map((d) => ({
@@ -97,17 +117,92 @@ export default function History() {
     setExpenses((prev) => prev.filter((e) => e.id !== id));
   }
 
-  function startEdit(expense: Expense) {
-    setEditingId(expense.id);
+  function openEdit(expense: Expense) {
+    setEditingExpense(expense);
+    setEditDate(toDateInputValue(expense.createdAt));
     setEditAmount(String(expense.amount));
+    setEditCategory(expense.category);
+    setEditMood(expense.mood);
+    setEditDescription(expense.description ?? "");
+    setEditError("");
   }
 
-  async function saveEdit(id: string) {
-    const value = Number(editAmount);
-    if (!value || value <= 0) return;
-    await updateDoc(doc(db, "expenses", id), { amount: value });
-    setExpenses((prev) => prev.map((e) => (e.id === id ? { ...e, amount: value } : e)));
-    setEditingId(null);
+  async function saveEdit() {
+    if (!editingExpense) return;
+    setEditError("");
+
+    const amountValue = Number(editAmount);
+    if (!amountValue || amountValue <= 0) {
+      setEditError("Enter an amount greater than zero.");
+      return;
+    }
+    if (!editCategory) {
+      setEditError("Pick a category.");
+      return;
+    }
+    if (!editMood) {
+      setEditError("Pick a mood.");
+      return;
+    }
+    if (!editDate) {
+      setEditError("Pick a date.");
+      return;
+    }
+    const today = toDateInputValue(new Date().toISOString());
+
+    if (editDate > today) {
+      setEditError("You cannot log an expense for a future date.");
+      return;
+    }
+
+    // preserve the original time-of-day, only change the calendar date —
+    // avoids collapsing everything to midnight, and keeps dayOfWeek accurate
+    const original = new Date(editingExpense.createdAt);
+    const [year, month, day] = editDate.split("-").map(Number);
+    const updatedDate = new Date(
+      year,
+      month - 1,
+      day,
+      original.getHours(),
+      original.getMinutes(),
+      original.getSeconds()
+    );
+
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "expenses", editingExpense.id), {
+        amount: amountValue,
+        category: editCategory,
+        mood: editMood,
+        description: editDescription || null,
+        createdAt: updatedDate.toISOString(),
+        timestamp: Timestamp.fromDate(updatedDate),
+        dayOfWeek: updatedDate.getDay(),
+      });
+
+      setExpenses((prev) =>
+        prev
+          .map((e) =>
+            e.id === editingExpense.id
+              ? {
+                  ...e,
+                  amount: amountValue,
+                  category: editCategory,
+                  mood: editMood,
+                  description: editDescription || undefined,
+                  createdAt: updatedDate.toISOString(),
+                }
+              : e
+          )
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      );
+
+      setEditingExpense(null);
+    } catch {
+      setEditError("Couldn't save changes. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const monthGroups = groupByMonth(expenses);
@@ -137,9 +232,7 @@ export default function History() {
             return (
               <div key={group.key}>
                 <div className="flex items-baseline justify-between mb-3 px-1">
-                  <h2 className="font-display text-lg font-semibold text-[#0B1220]">
-                    {group.label}
-                  </h2>
+                  <h2 className="font-display text-lg font-semibold text-[#0B1220]">{group.label}</h2>
                   <span className="font-mono text-xs text-[#0B1220]/50">
                     {group.items.length} expense{group.items.length === 1 ? "" : "s"} · PKR{" "}
                     {monthTotal.toLocaleString()}
@@ -183,51 +276,22 @@ export default function History() {
                           </div>
 
                           <div className="text-right shrink-0">
-                            {editingId === e.id ? (
-                              <input
-                                type="number"
-                                value={editAmount}
-                                onChange={(ev) => setEditAmount(ev.target.value)}
-                                className="w-24 border border-[#D8DCE3] rounded-lg px-2 py-1 text-sm font-mono text-right focus:outline-none focus-visible:ring-2 focus-visible:ring-[#16815F]"
-                                autoFocus
-                              />
-                            ) : (
-                              <p className="text-sm font-semibold text-[#0B1220] whitespace-nowrap">
-                                − PKR {e.amount.toLocaleString()}
-                              </p>
-                            )}
+                            <p className="text-sm font-semibold text-[#0B1220] whitespace-nowrap">
+                              − PKR {e.amount.toLocaleString()}
+                            </p>
                             <div className="flex justify-end gap-3 mt-1.5">
-                              {editingId === e.id ? (
-                                <>
-                                  <button
-                                    onClick={() => saveEdit(e.id)}
-                                    className="text-xs font-medium text-[#16815F] hover:underline"
-                                  >
-                                    Save
-                                  </button>
-                                  <button
-                                    onClick={() => setEditingId(null)}
-                                    className="text-xs font-medium text-[#0B1220]/50 hover:underline"
-                                  >
-                                    Cancel
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => startEdit(e)}
-                                    className="text-xs font-medium text-[#0B1220]/50 hover:text-[#16815F]"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteId(e.id)}
-                                    className="text-xs font-medium text-[#0B1220]/50 hover:text-red-600"
-                                  >
-                                    Delete
-                                  </button>
-                                </>
-                              )}
+                              <button
+                                onClick={() => openEdit(e)}
+                                className="text-xs font-medium text-[#0B1220]/50 hover:text-[#16815F]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => setDeleteId(e.id)}
+                                className="text-xs font-medium text-[#0B1220]/50 hover:text-red-600"
+                              >
+                                Delete
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -257,53 +321,22 @@ export default function History() {
                               {e.mood}
                             </span>
                           </span>
-
-                          {editingId === e.id ? (
-                            <input
-                              type="number"
-                              value={editAmount}
-                              onChange={(ev) => setEditAmount(ev.target.value)}
-                              className="w-full border border-[#D8DCE3] rounded-lg px-2 py-1 text-sm font-mono text-right focus:outline-none focus-visible:ring-2 focus-visible:ring-[#16815F]"
-                              autoFocus
-                            />
-                          ) : (
-                            <span className="text-sm font-semibold text-[#0B1220] text-right">
-                              − PKR {e.amount.toLocaleString()}
-                            </span>
-                          )}
-
+                          <span className="text-sm font-semibold text-[#0B1220] text-right">
+                            − PKR {e.amount.toLocaleString()}
+                          </span>
                           <div className="flex justify-end gap-3">
-                            {editingId === e.id ? (
-                              <>
-                                <button
-                                  onClick={() => saveEdit(e.id)}
-                                  className="text-xs font-medium text-[#16815F] hover:underline"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  onClick={() => setEditingId(null)}
-                                  className="text-xs font-medium text-[#0B1220]/50 hover:underline"
-                                >
-                                  Cancel
-                                </button>
-                              </>
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => startEdit(e)}
-                                  className="text-xs font-medium text-[#0B1220]/50 hover:text-[#16815F]"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => setDeleteId(e.id)}
-                                  className="text-xs font-medium text-[#0B1220]/50 hover:text-red-600"
-                                >
-                                  Delete
-                                </button>
-                              </>
-                            )}
+                            <button
+                              onClick={() => openEdit(e)}
+                              className="text-xs font-medium text-[#0B1220]/50 hover:text-[#16815F]"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => setDeleteId(e.id)}
+                              className="text-xs font-medium text-[#0B1220]/50 hover:text-red-600"
+                            >
+                              Delete
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -316,12 +349,11 @@ export default function History() {
         </div>
       )}
 
+      {/* Delete confirmation */}
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="font-display text-lg font-semibold text-[#0B1220]">
-              Delete expense?
-            </h2>
+            <h2 className="font-display text-lg font-semibold text-[#0B1220]">Delete expense?</h2>
             <p className="mt-2 text-sm text-[#0B1220]/60">
               Are you sure you want to delete this expense? This action cannot be undone.
             </p>
@@ -340,6 +372,105 @@ export default function History() {
                 className="rounded-lg bg-[#0B1220] px-4 py-2 text-sm font-medium text-white hover:bg-[#16815F]"
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full edit modal */}
+      {editingExpense && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-8 overflow-y-auto">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="font-display text-lg font-semibold text-[#0B1220] mb-4">Edit expense</h2>
+
+            {editError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 mb-4">
+                {editError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-[#0B1220]/70 mb-1">Date</label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(ev) => setEditDate(ev.target.value)}
+                  max={toDateInputValue(new Date().toISOString())}
+                  className="w-full border border-[#D8DCE3] rounded-lg px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#16815F]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#0B1220]/70 mb-1">Amount (PKR)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={editAmount}
+                  onChange={(ev) => setEditAmount(ev.target.value)}
+                  className="w-full border border-[#D8DCE3] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus-visible:ring-2 focus-visible:ring-[#16815F]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#0B1220]/70 mb-2">Category</label>
+                <div className="flex flex-wrap gap-2">
+                  {CATEGORIES.map((c) => (
+                    <button
+                      key={c.label}
+                      type="button"
+                      onClick={() => setEditCategory(c.label)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                        editCategory === c.label
+                          ? "bg-[#0B1220] text-white border-[#0B1220]"
+                          : "bg-white text-[#0B1220] border-[#D8DCE3] hover:border-[#0B1220]/40"
+                      }`}
+                    >
+                      <span>{c.icon}</span>
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#0B1220]/70 mb-2">Mood</label>
+                <div className="flex flex-wrap gap-2">
+                  {MOODS.map((m) => (
+                    <button
+                      key={m.label}
+                      type="button"
+                      onClick={() => setEditMood(m.label)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                        editMood === m.label
+                          ? "bg-[#16815F]/10 border-[#16815F] text-[#0B1220]"
+                          : "bg-white text-[#0B1220] border-[#D8DCE3] hover:border-[#0B1220]/40"
+                      }`}
+                    >
+                      <span>{m.icon}</span>
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+            
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => setEditingExpense(null)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-[#0B1220]/60 hover:bg-[#F3F4F6]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEdit}
+                disabled={saving}
+                className="rounded-lg bg-[#0B1220] px-4 py-2 text-sm font-medium text-white hover:bg-[#16815F] disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save changes"}
               </button>
             </div>
           </div>

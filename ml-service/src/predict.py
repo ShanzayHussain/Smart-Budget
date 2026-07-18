@@ -48,4 +48,13 @@ def predict_risk(data: dict) -> dict:
     probabilities = model.predict_proba(features)[0]
     confidence = float(max(probabilities))
 
-    return {"level": prediction, "confidence": round(confidence, 3)}
+    # full breakdown across all three classes, not just the winning one
+    prob_by_class = {
+        cls: round(float(p), 3) for cls, p in zip(model.classes_, probabilities)
+    }
+
+    return {
+        "level": prediction,
+        "confidence": round(confidence, 3),
+        "probabilities": prob_by_class,
+    }

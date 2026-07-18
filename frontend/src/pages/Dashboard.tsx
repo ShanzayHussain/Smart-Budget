@@ -14,6 +14,7 @@ import { useAuth } from "../context/AuthContext";
 import { calculateBudgetStats, placeholderRiskEstimate } from "../lib/budgetMath";
 import { categoryBreakdown } from "../lib/trendsData";
 import { fetchRisk, type RiskResult } from "../lib/api";
+import { checkCategoryBudgets } from "../lib/categoryStatus";
 
 interface Expense {
   id: string;
@@ -68,6 +69,7 @@ export default function Dashboard() {
   const [mlRisk, setMlRisk] = useState<RiskResult | null>(null);
   const [mlLoading, setMlLoading] = useState(true);
   const [mlError, setMlError] = useState(false);
+  const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number> | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -81,6 +83,7 @@ export default function Dashboard() {
         const budgetIsCurrent = userData?.budgetMonth === currentMonthKey;
         setTotalBudget(budgetIsCurrent ? userData?.monthlyBudget ?? null : null);
         setLastSavedBudget(userData?.monthlyBudget ?? null);
+        setCategoryBudgets(budgetIsCurrent ? userData?.categoryBudgets ?? null : null);
 
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -112,37 +115,39 @@ export default function Dashboard() {
       }
     })();
   }, [user]);
-   useEffect(() => {
-  if (!user) return;
 
-  (async () => {
-    try {
-      const result = await fetchRisk();
-      setMlRisk(result);
-    } catch (err) {
-      console.error("ML risk fetch failed:", err);
-      setMlError(true);
-    } finally {
-      setMlLoading(false);
-    }
-  })();
-}, [user]);
+  useEffect(() => {
+    if (!user) return;
+
+    (async () => {
+      try {
+        const result = await fetchRisk();
+        setMlRisk(result);
+      } catch (err) {
+        console.error("ML risk fetch failed:", err);
+        setMlError(true);
+      } finally {
+        setMlLoading(false);
+      }
+    })();
+  }, [user]);
 
   if (loading) {
     return <div className="min-h-[calc(100vh-73px)] bg-[#F5F6F8]" />;
   }
- 
+
   const spentSoFar = expenses.reduce((sum, e) => sum + e.amount, 0);
   const needsCurrentBudget = totalBudget === null;
   const budgetForDashboard = totalBudget ?? lastSavedBudget ?? 0;
   const stats = calculateBudgetStats(budgetForDashboard, spentSoFar);
   const risk: { level: "Low" | "Medium" | "High" } = mlRisk
-  ? { level: mlRisk.level }
-  : placeholderRiskEstimate(stats); 
+    ? { level: mlRisk.level }
+    : placeholderRiskEstimate(stats);
   const riskMeta = RISK_META[risk.level];
   const category = categoryBreakdown(expenses);
   const remaining = Math.max(budgetForDashboard - spentSoFar, 0);
   const percentLeft = budgetForDashboard > 0 ? Math.max(100 - stats.percentUsed, 0) : 0;
+  const categoryAlerts = checkCategoryBudgets(expenses, categoryBudgets);
 
   const now = new Date();
   const today = now.getDate();
@@ -200,13 +205,12 @@ export default function Dashboard() {
             >
               <span aria-hidden>+</span> Add Expense
             </Link>
-            
           </div>
         </div>
 
         {/* Stat cards */}
         <section className="grid md:grid-cols-3 gap-6">
-          <div className="bg-[#0B1220] text-white rounded-2xl p-6 relative overflow-hidden">
+          <div className="bg-[#0B1220] text-white rounded-2xl p-6 relative overflow-hidden flex flex-col">
             <div className="flex items-center justify-between mb-8">
               <span className="font-mono text-xs uppercase tracking-wide text-white/50">
                 Monthly Budget
@@ -215,36 +219,28 @@ export default function Dashboard() {
                 <CalendarIcon />
               </span>
             </div>
+
             <p className="font-display text-3xl font-bold mb-2">
               PKR {budgetForDashboard.toLocaleString()}
             </p>
-            {/* //{needsCurrentBudget ? (
-             <Link
-                  to="/set-budget"
-                  className="mt-4 md:mt-0 md:absolute md:bottom-6 md:right-6 inline-flex items-center gap-1.5 bg-[#5EEAD4] text-[#0B1220] px-3 py-2 rounded-lg text-sm font-semibold hover:bg-white transition-colors"
-                >
-                  Set Budget
-                  <span aria-hidden>→</span>
-                </Link>
-            ) : ( */}
-              <p className="text-xs text-[#5EEAD4]">
+
+            {needsCurrentBudget ? (
+              <p className="text-xs text-white/50 mb-4">
+                No budget set for {getMonthLabel()}
+              </p>
+            ) : (
+              <p className="text-xs text-[#5EEAD4] mb-4">
                 ↗ Budget set for {CURRENT_MONTH_LABEL}
               </p>
-            {/* )} */}
-            <Link
-    to="/set-budget"
-    className="absolute bottom-6 right-6 inline-flex items-center gap-1.5 bg-[#5EEAD4] text-[#0B1220] px-3 py-2 rounded-lg text-sm font-semibold hover:bg-white transition-colors"
-  >
-    Set Budget
-    <span aria-hidden>→</span>
-  </Link>
+            )}
 
-  {needsCurrentBudget && (
-    <p className="text-xs text-white/50 mt-3">
-      No budget set for {getMonthLabel()}
-    </p>
-  )}
-          
+            <Link
+              to="/set-budget"
+              className="mt-auto self-start md:mt-0 md:absolute md:bottom-6 md:right-6 inline-flex items-center gap-1.5 bg-[#5EEAD4] text-[#0B1220] px-3 py-2 rounded-lg text-sm font-semibold hover:bg-white transition-colors"
+            >
+              {needsCurrentBudget ? "Set Budget" : "Edit Budget"}
+              <span aria-hidden>→</span>
+            </Link>
           </div>
 
           <div className="bg-white rounded-2xl border border-[#E4E7EC] p-6">
@@ -289,6 +285,33 @@ export default function Dashboard() {
           </div>
         </section>
 
+        {/* Category budget alerts — only renders when at least one category crosses 80% */}
+        {categoryAlerts.length > 0 && (
+          <section className="bg-white rounded-2xl border border-[#E4E7EC] p-5">
+            <h3 className="font-medium text-sm text-[#0B1220]/70 mb-3">Category budget alerts</h3>
+            <div className="space-y-2">
+              {categoryAlerts.map((c) => (
+                <div
+                  key={c.category}
+                  className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm ${
+                    c.overBy > 0 ? "bg-red-50" : "bg-[#E8A33D]/10"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span aria-hidden>{CATEGORY_ICONS[c.category] ?? "📦"}</span>
+                    <span className="font-medium text-[#0B1220]">{c.category}</span>
+                  </span>
+                  <span className={c.overBy > 0 ? "text-red-700 font-medium" : "text-[#B8770E] font-medium"}>
+                    {c.overBy > 0
+                      ? `PKR ${c.overBy.toFixed(0)} over budget`
+                      : `${c.percentUsed.toFixed(0)}% of budget used`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Pace analysis + smart insight */}
         <section className="grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 bg-white rounded-2xl border border-[#E4E7EC] p-6">
@@ -296,7 +319,7 @@ export default function Dashboard() {
               <h2 className="font-display text-lg font-semibold text-[#0B1220]">
                 Budget Pace Analysis
               </h2>
-            {mlLoading ? (
+              {mlLoading ? (
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full bg-gray-100 text-[#0B1220]/50">
                   ⋯ ANALYZING
                 </span>
@@ -306,7 +329,10 @@ export default function Dashboard() {
                 >
                   {risk.level === "Low" ? "✓" : "!"} {riskMeta.pill}
                   {mlError && (
-                    <span className="text-[9px] font-normal opacity-70" title="ML service unavailable — showing estimated pace instead">
+                    <span
+                      className="text-[9px] font-normal opacity-70"
+                      title="ML service unavailable — showing estimated pace instead"
+                    >
                       (est.)
                     </span>
                   )}
@@ -322,9 +348,9 @@ export default function Dashboard() {
                 return (
                   <div key={i} className="flex-1 flex flex-col items-center justify-end h-full relative">
                     {b.isCurrent && (
-                            <span className="absolute -top-7 left-1/2 -translate-x-1/2 bg-[#0B1220] text-white text-[9px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-1 rounded whitespace-nowrap">
-                              TODAY
-                            </span>
+                      <span className="absolute -top-7 left-1/2 -translate-x-1/2 bg-[#0B1220] text-white text-[9px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-1 rounded whitespace-nowrap">
+                        TODAY
+                      </span>
                     )}
                     <div
                       className={
@@ -379,12 +405,9 @@ export default function Dashboard() {
           <div className="flex flex-wrap items-center justify-between gap-3 p-6 pb-4">
             <h3 className="font-display text-lg font-semibold text-[#0B1220]">Recent Expenses</h3>
             <div className="flex items-center gap-2">
-              <Link
-              to="/history"
-              className="text-xs font-medium text-[#16815F] hover:underline"
-            >
-              See full history →
-            </Link>
+              <Link to="/history" className="text-xs font-medium text-[#16815F] hover:underline">
+                See full history →
+              </Link>
             </div>
           </div>
 
@@ -401,66 +424,73 @@ export default function Dashboard() {
                 <span>Mood</span>
                 <span className="text-right">Amount</span>
               </div>
-          
-                <div className="divide-y divide-[#E4E7EC]">
-                  {recentToShow.map((e) => (
-                    <div key={e.id} className="px-6 py-4">
-                      {/* Mobile: stacked card */}
-                      <div className="flex sm:hidden justify-between items-start gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-[#0B1220] flex items-center gap-1.5">
-                            <span aria-hidden>{CATEGORY_ICONS[e.category] ?? "📦"}</span>
-                            {e.category}
-                          </p>
-                          <p className="text-xs text-[#0B1220]/50 mt-0.5">
-                            {new Date(e.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                          </p>
-                          <span
-                            className={`inline-block mt-1.5 text-xs font-medium px-2 py-1 rounded-full ${
-                              MOOD_STYLES[e.mood] ?? "bg-gray-100 text-[#0B1220]/60"
-                            }`}
-                          >
-                            {e.mood}
-                          </span>
-                        </div>
-                        <span className="text-sm font-semibold text-[#0B1220] whitespace-nowrap">
-                          − PKR {e.amount.toLocaleString()}
-                        </span>
-                      </div>
 
-                      {/* Desktop: grid row */}
-                      <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1.6fr_1fr_1fr] gap-4 items-center">
-                        <span className="text-sm text-[#0B1220]/70">
-                          {new Date(e.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                        </span>
-                        <span className="text-sm text-[#0B1220] flex items-center gap-1.5">
+              <div className="divide-y divide-[#E4E7EC]">
+                {recentToShow.map((e) => (
+                  <div key={e.id} className="px-6 py-4">
+                    {/* Mobile: stacked card */}
+                    <div className="flex sm:hidden justify-between items-start gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-[#0B1220] flex items-center gap-1.5">
                           <span aria-hidden>{CATEGORY_ICONS[e.category] ?? "📦"}</span>
                           {e.category}
-                        </span>
-                        <span className="text-sm text-[#0B1220]/70">
-                          {e.description || `${e.category} expense`}
-                        </span>
-                        <span>
-                          <span className={`inline-block text-xs font-medium px-2 py-1 rounded-full ${MOOD_STYLES[e.mood] ?? "bg-gray-100 text-[#0B1220]/60"}`}>
-                            {e.mood}
-                          </span>
-                        </span>
-                        <span className="text-sm font-semibold text-[#0B1220] text-right">
-                          − PKR {e.amount.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-[#0B1220]/50 mt-0.5">
+                          {new Date(e.createdAt).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </p>
+                        <span
+                          className={`inline-block mt-1.5 text-xs font-medium px-2 py-1 rounded-full ${
+                            MOOD_STYLES[e.mood] ?? "bg-gray-100 text-[#0B1220]/60"
+                          }`}
+                        >
+                          {e.mood}
                         </span>
                       </div>
+                      <span className="text-sm font-semibold text-[#0B1220] whitespace-nowrap">
+                        − PKR {e.amount.toLocaleString()}
+                      </span>
                     </div>
-                  ))}
-                </div>
-             
+
+                    {/* Desktop: grid row */}
+                    <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1.6fr_1fr_1fr] gap-4 items-center">
+                      <span className="text-sm text-[#0B1220]/70">
+                        {new Date(e.createdAt).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </span>
+                      <span className="text-sm text-[#0B1220] flex items-center gap-1.5">
+                        <span aria-hidden>{CATEGORY_ICONS[e.category] ?? "📦"}</span>
+                        {e.category}
+                      </span>
+                      <span className="text-sm text-[#0B1220]/70">
+                        {e.description || `${e.category} expense`}
+                      </span>
+                      <span>
+                        <span
+                          className={`inline-block text-xs font-medium px-2 py-1 rounded-full ${
+                            MOOD_STYLES[e.mood] ?? "bg-gray-100 text-[#0B1220]/60"
+                          }`}
+                        >
+                          {e.mood}
+                        </span>
+                      </span>
+                      <span className="text-sm font-semibold text-[#0B1220] text-right">
+                        − PKR {e.amount.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </>
           )}
-          
         </section>
-        <div className="flex justify-end mb-6">
-      </div>
       </main>
-          
+
       {/* Footer */}
       <footer className="border-t border-[#E4E7EC] py-8 mt-4">
         <div className="max-w-7xl mx-auto px-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-sm">
@@ -515,4 +545,3 @@ function BulbIcon() {
     </svg>
   );
 }
-

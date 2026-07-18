@@ -13,3 +13,4 @@ class RiskRequest(BaseModel):
 class RiskResponse(BaseModel):
     level: str
     confidence: float
+    probabilities: dict[str, float]

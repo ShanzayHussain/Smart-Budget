@@ -32,6 +32,7 @@ const RISK_COPY = {
 };
 
 const RISK_COLORS = { Low: "#16815F", Medium: "#B8770E", High: "#B91C1C" };
+const RISK_BG = { Low: "bg-[#16815F]/5", Medium: "bg-[#B8770E]/5", High: "bg-red-50" };
 
 const TICK_COLOR = "#0B1220AA";
 const TICK_FONT = { size: 11 };
@@ -90,17 +91,13 @@ export default function Insights() {
   const spentSoFar = expenses.reduce((sum, e) => sum + e.amount, 0);
   const stats = calculateBudgetStats(totalBudget, spentSoFar);
 
-  // ── Derive plain-language "what's in your data" signals from
-  // what's already loaded on this page. These describe patterns visible
-  // in your own logged data — not the model's internal feature weights,
-  // which live in the training notebook, not here.
   type Signal = { label: string; detail: string; strength: number };
   const signals: Signal[] = [];
 
   const paceGap = stats.actualDailyAverage - stats.safeDailyPace;
   if (Math.abs(paceGap) > 1) {
     signals.push({
-      label: "Your daily spending pace",
+      label: "Daily spending pace",
       detail:
         paceGap > 0
           ? `You're averaging PKR ${paceGap.toFixed(0)}/day above your safe target.`
@@ -109,23 +106,33 @@ export default function Insights() {
     });
   }
 
+  let maxMoodLabel: string | null = null;
+  let minMoodLabel: string | null = null;
+  let moodRatio: number | null = null;
+
   if (moodData.labels.length > 1) {
     const maxMood = Math.max(...moodData.averages);
     const minMood = Math.min(...moodData.averages);
-    const maxMoodLabel = moodData.labels[moodData.averages.indexOf(maxMood)];
+    maxMoodLabel = moodData.labels[moodData.averages.indexOf(maxMood)];
+    minMoodLabel = moodData.labels[moodData.averages.indexOf(minMood)];
+    if (minMood > 0) moodRatio = maxMood / minMood;
+
     if (maxMood - minMood > 0) {
       signals.push({
-        label: "Your mood while spending",
+        label: "Mood while spending",
         detail: `You spend the most on average when feeling "${maxMoodLabel}" — PKR ${maxMood.toFixed(0)} per expense.`,
         strength: maxMood - minMood,
       });
     }
   }
 
+  let maxDayLabel: string | null = null;
+
   if (dayData.labels.length > 1) {
     const maxDay = Math.max(...dayData.averages);
     const minDay = Math.min(...dayData.averages);
-    const maxDayLabel = dayData.labels[dayData.averages.indexOf(maxDay)];
+    maxDayLabel = dayData.labels[dayData.averages.indexOf(maxDay)];
+
     if (maxDay - minDay > 0) {
       signals.push({
         label: "Day of the week",
@@ -137,35 +144,28 @@ export default function Insights() {
 
   signals.sort((a, b) => b.strength - a.strength);
   const topSignals = signals.slice(0, 3);
+  const maxStrength = Math.max(...signals.map((s) => s.strength), 1);
+
+  const suggestedDailyLimit =
+    risk?.level === "Low"
+      ? stats.safeDailyPace
+      : risk?.level === "Medium"
+      ? stats.safeDailyPace * 0.85
+      : stats.safeDailyPace * 0.7;
+  const suggestedReduction = Math.max(stats.actualDailyAverage - suggestedDailyLimit, 0);
 
   const moodChartData = {
     labels: moodData.labels,
-    datasets: [
-      {
-        label: "Average spend",
-        data: moodData.averages,
-        backgroundColor: "#16815F",
-        borderRadius: 4,
-      },
-    ],
+    datasets: [{ label: "Average spend", data: moodData.averages, backgroundColor: "#16815F", borderRadius: 4 }],
   };
 
   const dayChartData = {
     labels: dayData.labels,
-    datasets: [
-      {
-        label: "Average spend",
-        data: dayData.averages,
-        backgroundColor: "#0B1220",
-        borderRadius: 4,
-      },
-    ],
+    datasets: [{ label: "Average spend", data: dayData.averages, backgroundColor: "#0B1220", borderRadius: 4 }],
   };
 
   const historyChartData = {
-    labels: history.map((h) =>
-      new Date(h.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-    ),
+    labels: history.map((h) => new Date(h.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })),
     datasets: [
       {
         label: "Risk level",
@@ -211,15 +211,11 @@ export default function Insights() {
           stepSize: 1,
           color: TICK_COLOR,
           font: TICK_FONT,
-          callback: (val: any) =>
-            val === 1 ? "Low" : val === 2 ? "Medium" : val === 3 ? "High" : "",
+          callback: (val: any) => (val === 1 ? "Low" : val === 2 ? "Medium" : val === 3 ? "High" : ""),
         },
         grid: { color: "#00000008" },
       },
-      x: {
-        ticks: { color: TICK_COLOR, font: TICK_FONT },
-        grid: { display: false },
-      },
+      x: { ticks: { color: TICK_COLOR, font: TICK_FONT }, grid: { display: false } },
     },
   };
 
@@ -236,95 +232,158 @@ export default function Insights() {
         cornerRadius: 8,
         padding: 10,
         displayColors: false,
-        callbacks: {
-          label: (item: any) => `PKR ${item.parsed.y.toFixed(0)} avg`,
-        },
+        callbacks: { label: (item: any) => `PKR ${item.parsed.y.toFixed(0)} avg` },
       },
     },
     scales: {
-      y: {
-        beginAtZero: true,
-        ticks: { color: TICK_COLOR, font: TICK_FONT },
-        grid: { color: "#00000008" },
-      },
-      x: {
-        ticks: { color: TICK_COLOR, font: TICK_FONT },
-        grid: { display: false },
-      },
+      y: { beginAtZero: true, ticks: { color: TICK_COLOR, font: TICK_FONT }, grid: { color: "#00000008" } },
+      x: { ticks: { color: TICK_COLOR, font: TICK_FONT }, grid: { display: false } },
     },
   };
 
+  const probabilityOrder: Array<"Low" | "Medium" | "High"> = ["Low", "Medium", "High"];
+
   return (
-    <main className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+    <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
       <div>
-        <h1 className="font-display text-3xl font-bold text-[#0B1220] mt-2">
-          Your Spending Insights
-        </h1>
-        <p className="text-[#0B1220]/60 mt-1">
-          What's actually driving your overspending risk this month.
-        </p>
+        <h1 className="font-display text-3xl font-bold text-[#0B1220] mt-2">Your Spending Insights</h1>
+        <p className="text-[#0B1220]/60 mt-1">What's actually driving your overspending risk this month.</p>
       </div>
 
-      {/* Current prediction, explained */}
-      <section className="bg-white rounded-2xl border border-[#E4E7EC] p-6">
-        <h2 className="font-display text-lg font-semibold text-[#0B1220] mb-3">
-          Current Prediction
-        </h2>
-        {risk ? (
-          <>
+      {risk ? (
+        <>
+          {/* Card 1: The prediction itself — kept minimal */}
+          <section className="bg-[#0B1220]/90 rounded-2xl border border-[#E4E7EC] p-6">
+            <h2 className="font-display text-lg font-semibold text-white mb-3">Current Prediction</h2>
             <div className="flex items-center gap-3 mb-3">
-              <span
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: RISK_COLORS[risk.level] }}
-              />
-              <span
-                className="font-mono text-xl font-semibold"
-                style={{ color: RISK_COLORS[risk.level] }}
-              >
+              <span className="w-3 h-3 rounded-full" style={{ backgroundColor: RISK_COLORS[risk.level] }} />
+              <span className="font-mono text-xl font-semibold" style={{ color: RISK_COLORS[risk.level] }}>
                 {risk.level}
               </span>
               {risk.confidence != null && (
-                <span className="text-xs text-[#0B1220]/40 font-mono">
+                <span className="text-xs text-white/60 font-mono">
                   ({Math.round(risk.confidence * 100)}% model confidence)
                 </span>
               )}
             </div>
-            <p className="text-sm text-[#0B1220]/70">
-                {topSignals.length > 0 && paceGap <= 0
-                  ? `Your daily pace is healthy, but ${topSignals[0].label.toLowerCase()} is pulling your risk toward ${risk.level}.`
-                  : RISK_COPY[risk.level]}
-              </p>
-
-            {topSignals.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[#0B1220]/50 mb-3">
-                  Patterns in your data
-                </p>
-                <ul className="space-y-2">
-                  {topSignals.map((s) => (
-                    <li key={s.label} className="flex gap-2 text-sm">
-                      <span className="text-[#16815F] mt-0.5">●</span>
-                      <span className="text-[#0B1220]/70">
-                        <span className="font-medium text-[#0B1220]">{s.label}:</span> {s.detail}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+            <p className="text-sm text-white/70">
+              {topSignals.length > 0 && paceGap <= 0
+                ? `Your daily pace is healthy, but ${topSignals[0].label.toLowerCase()} is pulling your risk toward ${risk.level}.`
+                : RISK_COPY[risk.level]}
+            </p>
+          </section>
+          <div className="grid md:grid-cols-2 gap-6">
+          {/* Card 2: Probability breakdown */}
+          {risk.probabilities && (
+            <section className="bg-[#5EEAD4]/30 rounded-2xl border border-[#E4E7EC] p-6">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[#0B1220]/50 mb-4">
+                Prediction Probabilities
+              </h3>
+              <div className="space-y-2.5">
+                {probabilityOrder.map((level) => {
+                  const pct = Math.round((risk.probabilities?.[level] ?? 0) * 100);
+                  return (
+                    <div key={level} className="flex items-center gap-3">
+                      <span className="text-xs w-14 text-[#0B1220]/70">{level}</span>
+                      <div className="flex-1 h-2.5 bg-white rounded-full overflow-hidden border border-[#E4E7EC]">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${pct}%`, backgroundColor: RISK_COLORS[level] }}
+                        />
+                      </div>
+                      <span className="text-xs font-mono w-10 text-right text-[#0B1220]/70">{pct}%</span>
+                    </div>
+                  );
+                })}
               </div>
+              <p className="text-xs text-[#0B1220]/40 mt-3">
+                This means "{risk.level}" is currently the most likely outcome — not a certainty.
+              </p>
+            </section>
+          )}
+
+          {/* Card 3: Patterns detected */}
+          {topSignals.length > 0 && (
+            <section className="bg-[#5EEAD4]/10 rounded-2xl border border-[#E4E7EC] p-6">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[#0B1220]/50 mb-4">
+                Patterns Detected in Your Data
+              </h3>
+              <div className="space-y-4">
+                {topSignals.map((s) => (
+                  <div key={s.label}>
+                    <div className="flex justify-between text-xs mb-1.5">
+                      <span className="font-medium text-[#0B1220]">{s.label}</span>
+                    </div>
+                    <div className="h-1.5 bg-white rounded-full overflow-hidden border border-[#E4E7EC] mb-1.5">
+                      <div
+                        className="h-full rounded-full bg-[#16815F]"
+                        style={{ width: `${(s.strength / maxStrength) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-[#0B1220]/60">{s.detail}</p>
+                  </div>
+                  
+                ))}
+              </div>
+              
+            </section>
+            
+          )}
+          </div>
+
+          {/* Card 4: Suggested action — tinted by risk level */}
+          <section className={`rounded-2xl border border-[#E4E7EC] p-6 ${RISK_BG[risk.level]}`}>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-[#0B1220]/50 mb-3">
+              Suggested Action
+            </h3>
+            {risk.level === "Low" ? (
+              <p className="text-sm text-[#0B1220]/80">
+                ✅ You're on a safe pace. You can spend up to{" "}
+                <span className="font-semibold text-[#0B1220]">PKR {stats.safeDailyPace.toFixed(0)}/day</span> and
+                stay within your budget.
+              </p>
+            ) : risk.level === "Medium" ? (
+              <p className="text-sm text-[#0B1220]/80">
+                ⚠️ Try limiting spending to about{" "}
+                <span className="font-semibold text-[#0B1220]">PKR {suggestedDailyLimit.toFixed(0)}/day</span> for
+                the rest of the month to stay safely on track.
+              </p>
+            ) : (
+              <p className="text-sm text-[#0B1220]/80">
+                🚨 Cutting back by about{" "}
+                <span className="font-semibold text-[#0B1220]">PKR {suggestedReduction.toFixed(0)}/day</span> would
+                help bring you back toward a safer pace.
+              </p>
             )}
-          </>
-        ) : (
-          <p className="text-sm text-[#0B1220]/50">
-            Log a few expenses this month to get a prediction.
+          </section>
+        </>
+      ) : (
+        <section className="bg-white rounded-2xl border border-[#E4E7EC] p-6">
+          <h2 className="font-display text-lg font-semibold text-[#0B1220] mb-3">Current Prediction</h2>
+          <p className="text-sm text-[#0B1220]/50">Log a few expenses this month to get a prediction.</p>
+        </section>
+      )}
+
+      {/* Personalized insight */}
+      {maxMoodLabel && minMoodLabel && maxDayLabel && (
+        <section className="bg-white rounded-2xl border border-[#E4E7EC] border-l-4 border-l-[#16815F] p-6">
+          <h3 className="font-display text-base font-semibold text-[#0B1220] mb-2">💡 Personalized Insight</h3>
+          <p className="text-sm text-[#0B1220]/70 leading-relaxed mb-3">
+            {moodRatio && moodRatio > 1.05
+              ? `You spend about ${moodRatio.toFixed(1)}× more on average when feeling "${maxMoodLabel}" than when feeling "${minMoodLabel}". `
+              : `Your spending when feeling "${maxMoodLabel}" tends to run highest. `}
+            <span className="font-medium text-[#0B1220]">{maxDayLabel}</span> is also your highest-spending day.
           </p>
-        )}
-      </section>
+          <p className="text-xs text-[#0B1220]/50">
+            Try setting a smaller discretionary limit for {maxDayLabel}, or pause before purchases made while
+            feeling {maxMoodLabel}.
+          </p>
+        </section>
+      )}
 
       {/* Your Pace */}
-      <section className="bg-white rounded-2xl border border-[#E4E7EC] p-6">
-        <h2 className="font-display text-lg font-semibold text-[#0B1220] mb-4">
-          Your Pace This Month
-        </h2>
+      <section className="bg-[#16815F]/10 rounded-2xl border border-[#E4E7EC] p-6">
+        <h2 className="font-display text-lg font-semibold text-[#0B1220] mb-4">Your Pace This Month</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <p className="text-xs text-[#0B1220]/50 mb-1">Actual average</p>
@@ -342,9 +401,7 @@ export default function Insights() {
           </div>
           <div>
             <p className="text-xs text-[#0B1220]/50 mb-1">Budget used</p>
-            <p className="font-mono text-lg font-semibold text-[#0B1220]">
-              {stats.percentUsed.toFixed(0)}%
-            </p>
+            <p className="font-mono text-lg font-semibold text-[#0B1220]">{stats.percentUsed.toFixed(0)}%</p>
           </div>
           <div>
             <p className="text-xs text-[#0B1220]/50 mb-1">Days left</p>
@@ -372,9 +429,7 @@ export default function Insights() {
         </div>
 
         <div className="bg-white rounded-2xl border border-[#E4E7EC] p-6">
-          <h3 className="font-medium text-sm text-[#0B1220]/70 mb-4">
-            Average Spend by Day of Week
-          </h3>
+          <h3 className="font-medium text-sm text-[#0B1220]/70 mb-4">Average Spend by Day of Week</h3>
           {dayData.labels.length > 0 ? (
             <div className="h-52">
               <Bar data={dayChartData} options={barChartOptions} />
@@ -386,11 +441,9 @@ export default function Insights() {
       </section>
 
       {/* Risk trend over time */}
-      <section className="bg-white rounded-2xl border border-[#E4E7EC] p-6">
+      <section className="bg-[#16815F]/20 rounded-2xl border border-[#E4E7EC] p-6">
         <h3 className="font-medium text-sm text-[#0B1220]/70 mb-1">Risk Trend This Month</h3>
-        <p className="text-xs text-[#0B1220]/40 mb-4">
-          A saved snapshot of your predicted risk, once per day.
-        </p>
+        <p className="text-xs text-[#0B1220]/40 mb-4">A saved snapshot of your predicted risk, once per day.</p>
 
         {history.length === 0 ? (
           <div className="text-center py-10">
@@ -401,10 +454,7 @@ export default function Insights() {
           </div>
         ) : history.length === 1 ? (
           <div className="flex items-center gap-4 py-6">
-            <span
-              className="w-3 h-3 rounded-full shrink-0"
-              style={{ backgroundColor: RISK_COLORS[history[0].level] }}
-            />
+            <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: RISK_COLORS[history[0].level] }} />
             <div>
               <p className="text-sm text-[#0B1220]">
                 Today's prediction:{" "}
@@ -428,15 +478,13 @@ export default function Insights() {
       <section className="bg-[#0B1220] text-white rounded-2xl p-6">
         <h3 className="font-display text-base font-semibold mb-2">How this works</h3>
         <p className="text-sm text-white/70 leading-relaxed mb-3">
-          Your budget progress and remaining balance are plain math — no model needed.
-          The risk level above comes from a Random Forest model trained to recognize
-          patterns across mood, day of week, and spending trend — not just how much
-          of your budget is gone.
+          Your budget metrics are calculated using your actual spending activity and budget limits. The
+          overspending risk prediction is generated by a Random Forest classification model that analyzes
+          behavioral patterns such as spending pace, mood, day of the week, and recent spending trends.
         </p>
         <p className="text-xs text-white/40 leading-relaxed">
-          The model was trained on simulated spending patterns designed to mirror real
-          behavior. Predictions become more personal as more of your own logged data
-          accumulates over time.
+          The model currently uses a baseline trained on simulated spending behavior. As more personal spending
+          data is collected, the insights can become increasingly tailored to your individual patterns.
         </p>
       </section>
     </main>

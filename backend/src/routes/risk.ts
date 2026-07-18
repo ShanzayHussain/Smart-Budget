@@ -105,6 +105,7 @@ await adminDb
 res.json({
   level: mlResult.level,
   confidence: mlResult.confidence,
+  probabilities: mlResult.probabilities,
   spentSoFar,
   totalBudget,
   source: "ml-model",

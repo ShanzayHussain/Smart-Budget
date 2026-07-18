@@ -24,6 +24,9 @@ export default function LogExpense() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  const [date, setDate] = useState(
+    new Date().toISOString().split("T")[0]
+  );
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState("");
   const [mood, setMood] = useState("");
@@ -35,31 +38,62 @@ export default function LogExpense() {
     setError("");
 
     const value = Number(amount);
+
+    if (!date) {
+      setError("Pick a date.");
+      return;
+    }
+    const today = new Date().toISOString().split("T")[0];
+
+      if (date > today) {
+        setError("You cannot log an expense for a future date.");
+        return;
+      }
+
     if (!value || value <= 0) {
       setError("Enter an amount greater than zero.");
       return;
     }
+
     if (!category) {
       setError("Pick a category.");
       return;
     }
+
     if (!mood) {
       setError("Pick how you were feeling.");
       return;
     }
 
     setLoading(true);
+
     try {
-      const now = new Date();
+      // Create the expense date from the selected calendar date
+      const [year, month, day] = date.split("-").map(Number);
+
+      const expenseDate = new Date(
+        year,
+        month - 1,
+        day,
+        new Date().getHours(),
+        new Date().getMinutes(),
+        new Date().getSeconds()
+      );
+
       await addDoc(collection(db, "expenses"), {
         userId: user!.uid,
         amount: value,
         category,
         mood,
-        dayOfWeek: now.getDay(), // 0 = Sunday ... 6 = Saturday, useful later for the model
-        timestamp: Timestamp.fromDate(now),
-        createdAt: now.toISOString(),
+
+        // Based on the date selected by the user
+        dayOfWeek: expenseDate.getDay(),
+
+        // The actual date the expense belongs to
+        timestamp: Timestamp.fromDate(expenseDate),
+        createdAt: expenseDate.toISOString(),
       });
+
       navigate("/dashboard");
     } catch {
       setError("Couldn't save this expense. Please try again.");
@@ -73,8 +107,14 @@ export default function LogExpense() {
       <div className="w-full max-w-md">
         <div className="bg-white rounded-2xl shadow-sm border border-[#E4E7EC] p-8">
           <div className="flex justify-between items-baseline mb-6">
-            <h1 className="font-display text-2xl font-semibold text-[#0B1220]">Log an expense</h1>
-            <Link to="/dashboard" className="text-xs text-[#0B1220]/60 hover:text-[#16815F]">
+            <h1 className="font-display text-2xl font-semibold text-[#0B1220]">
+              Log an expense
+            </h1>
+
+            <Link
+              to="/dashboard"
+              className="text-xs text-[#0B1220]/60 hover:text-[#16815F]"
+            >
               Cancel
             </Link>
           </div>
@@ -86,10 +126,34 @@ export default function LogExpense() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
+
+            {/* Date */}
             <div>
-              <label htmlFor="amount" className="block text-xs font-medium text-[#0B1220]/70 mb-1">
+              <label
+                htmlFor="date"
+                className="block text-xs font-medium text-[#0B1220]/70 mb-1"
+              >
+                Date
+              </label>
+
+              <input
+                id="date"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full border border-[#D8DCE3] rounded-lg px-3 py-3 text-sm bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#16815F]"
+              />
+            </div>
+
+            {/* Amount */}
+            <div>
+              <label
+                htmlFor="amount"
+                className="block text-xs font-medium text-[#0B1220]/70 mb-1"
+              >
                 Amount (PKR)
               </label>
+
               <input
                 id="amount"
                 type="number"
@@ -103,8 +167,12 @@ export default function LogExpense() {
               />
             </div>
 
+            {/* Category */}
             <div>
-              <p className="text-xs font-medium text-[#0B1220]/70 mb-2">Category</p>
+              <p className="text-xs font-medium text-[#0B1220]/70 mb-2">
+                Category
+              </p>
+
               <div className="flex flex-wrap gap-2">
                 {CATEGORIES.map((c) => (
                   <button
@@ -124,10 +192,12 @@ export default function LogExpense() {
               </div>
             </div>
 
+            {/* Mood */}
             <div>
               <p className="text-xs font-medium text-[#0B1220]/70 mb-2">
                 How were you feeling?
               </p>
+
               <div className="flex flex-wrap gap-2">
                 {MOODS.map((m) => (
                   <button
@@ -141,13 +211,19 @@ export default function LogExpense() {
                         : "bg-white border-[#D8DCE3] hover:border-[#0B1220]/40"
                     }`}
                   >
-                    <span className="text-xl leading-none">{m.icon}</span>
-                    <span className="text-[10px] text-[#0B1220]/60">{m.label}</span>
+                    <span className="text-xl leading-none">
+                      {m.icon}
+                    </span>
+
+                    <span className="text-[10px] text-[#0B1220]/60">
+                      {m.label}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
 
+            {/* Submit */}
             <button
               type="submit"
               disabled={loading}
@@ -155,6 +231,7 @@ export default function LogExpense() {
             >
               {loading ? "Saving…" : "Save expense"}
             </button>
+
           </form>
         </div>
       </div>

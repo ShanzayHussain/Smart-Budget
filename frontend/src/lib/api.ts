@@ -5,6 +5,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 export interface RiskResult {
   level: "Low" | "Medium" | "High";
   confidence: number | null;
+  probabilities?: Record<string, number>;
   source: "ml-model" | "no-data";
 }
 export interface RiskSnapshot {
