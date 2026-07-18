@@ -63,36 +63,38 @@ Guidelines:
 - If asked something outside budgeting, gently redirect to what you can help with.
 - Be encouraging, not judgmental, even if their spending looks risky.`;
 
-    const contents = [
-      ...(history ?? []).map((h) => ({
-        role: h.role,
-        parts: [{ text: h.text }],
-      })),
-      { role: "user", parts: [{ text: message }] },
-    ];
+    // Groq uses OpenAI-compatible chat format: role is "user" or "assistant", not "model"
+const messages = [
+  { role: "system", content: systemContext },
+  ...(history ?? []).map((h) => ({
+    role: h.role === "model" ? "assistant" : "user",
+    content: h.text,
+  })),
+  { role: "user", content: message },
+];
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemContext }] },
-          contents,
-        }),
-      }
-    );
+const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+  },
+  body: JSON.stringify({
+    model: "llama-3.3-70b-versatile",
+    messages,
+  }),
+});
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      console.error("Gemini API error:", errText);
-      throw new Error(`Gemini API responded with status ${geminiRes.status}`);
-    }
+if (!groqRes.ok) {
+  const errText = await groqRes.text();
+  console.error("Groq API error:", errText);
+  throw new Error(`Groq API responded with status ${groqRes.status}`);
+}
 
-    const geminiData = await geminiRes.json();
-    const reply = geminiData.candidates?.[0]?.content?.parts?.[0]?.text ?? "Sorry, I couldn't generate a response.";
+const groqData = await groqRes.json();
+const reply = groqData.choices?.[0]?.message?.content ?? "Sorry, I couldn't generate a response.";
 
-    res.json({ reply });
+res.json({ reply });
   } catch (err) {
     console.error("Chat request failed:", err);
     res.status(500).json({ error: "Failed to get a response." });

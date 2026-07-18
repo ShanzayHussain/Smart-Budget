@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import LogExpense from "./pages/LogExpense";
 import History from "./pages/History";
 import Insights from "./pages/Insights";
+import ChatWidget from "./components/ChatWidget";
 
 function App() {
   return (
@@ -42,7 +43,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-          {/* /trends and /history come next */}
+         
               <Route
                 path="/history"
                 element={
@@ -61,6 +62,7 @@ function App() {
                 />
               
         </Routes>
+     
       </BrowserRouter>
     </AuthProvider>
   );

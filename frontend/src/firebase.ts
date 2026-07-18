@@ -15,3 +15,5 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
+// TEMPORARY — for grabbing a test token in the browser console. Remove before deploying.
+(window as any).debugAuth = auth;
