@@ -132,21 +132,8 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Stats bar */}
-      <section className="bg-[#0B1220] text-white">
-        <div className="max-w-7xl mx-auto px-6 py-10 grid grid-cols-3 text-center divide-x divide-white/10">
-          {[
-            { value: "10,000+", label: "Users Empowered" },
-            { value: "PKR 50M+", label: "Tracked Monthly" },
-            { value: "4.9/5", label: "App Store Rating" },
-          ].map((stat) => (
-            <div key={stat.label}>
-              <p className="font-display text-2xl sm:text-3xl font-bold">{stat.value}</p>
-              <p className="text-xs sm:text-sm text-white/50 mt-1">{stat.label}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+    
+
 
       {/* Feature grid */}
       <section id="features" className="max-w-7xl mx-auto px-6 py-20">
