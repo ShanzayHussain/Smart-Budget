@@ -31,23 +31,29 @@ Chat with a budget assistant that has real context on your spending
 <img width="1573" height="868" alt="image" src="https://github.com/user-attachments/assets/39d2050f-c9ad-428b-adc6-c41905532d12" />
 
 
-## Tech stack
-Frontend: React + Vite + TypeScript, Tailwind CSS, Chart.js 
-Backend: Node.js + Express + TypeScript 
-ML Service: Python + FastAPI, scikit-learn (Random Forest classifier) 
-Database / Auth: Firebase (Firestore + Authentication, including Google Sign-In) 
-Chatbot: Groq API (Llama 3.3 70B)
+## Tech Stack
 
-## Project structure
+- **Frontend:** React + Vite + TypeScript, Tailwind CSS, Chart.js
+- **Backend:** Node.js + Express + TypeScript
+- **ML Service:** Python + FastAPI, scikit-learn (Random Forest Classifier)
+- **Database & Authentication:** Firebase (Firestore + Authentication, including Google Sign-In)
+- **AI Chatbot:** Groq API (Llama 3.3 70B)
+
+---
+
+## Project Structure
+
+```text
 SmartBudget/
-├── frontend/       React app (pages, components, chat widget)
-├── backend/        Express API (auth verification, risk endpoint, chat endpoint)
-├── ml-service/      FastAPI service serving the trained Random Forest model
-│   ├── data/        Generated synthetic training data
-│   ├── notebooks/    EDA and model training notebooks
-│   ├── src/          FastAPI app, prediction logic
-│   └── models/       Saved model + feature columns (.pkl files)
+├── frontend/          # React app (pages, components, chat widget)
+├── backend/           # Express API (authentication, risk prediction, chatbot endpoints)
+├── ml-service/        # FastAPI service serving the trained Random Forest model
+│   ├── data/          # Generated synthetic training data
+│   ├── notebooks/     # EDA and model training notebooks
+│   ├── src/           # FastAPI application and prediction logic
+│   └── models/        # Saved model and feature columns (.pkl files)
 └── README.md
+```
 
 ## How the ML actually works
 Two separate things are combined on purpose:
