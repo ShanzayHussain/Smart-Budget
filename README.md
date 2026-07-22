@@ -1,8 +1,8 @@
-#SmartBudget
+# SmartBudget
 
 A personal finance web app that combines honest budget math with a machine learning model that predicts overspending risk based on spending patterns — mood, day of week, and spending trend — not just how much of your budget is gone.
 
-What it does
+## What it does
 Set a monthly budget (optionally split by category)
 Log expenses with amount, category, and mood
 See real-time budget math: spent so far, % used, safe daily pace
@@ -12,33 +12,33 @@ Chat with a budget assistant that has real context on your spending
 
 ## Screenshots
 
-###Landing Page
+### Landing Page
 <img width="1645" height="857" alt="image" src="https://github.com/user-attachments/assets/447ab233-fdac-4321-8ac8-842c6b816a89" />
 
-###Dashboard
+### Dashboard
 <img width="1614" height="857" alt="image" src="https://github.com/user-attachments/assets/559c6f3a-0a60-4ceb-bbcc-8688637c899b" />
 
-###Set Budget
+### Set Budget
 <img width="877" height="782" alt="image" src="https://github.com/user-attachments/assets/cad0b563-d591-4334-b7a6-2181eb501a16" />
 
-###Log Expense
+### Log Expense
 <img width="686" height="857" alt="image" src="https://github.com/user-attachments/assets/8c83191f-eaf9-4d68-a951-8863c4307c88" />
 
-###Expense History
+### Expense History
 <img width="1526" height="882" alt="image" src="https://github.com/user-attachments/assets/22a137e2-3869-4599-99a7-c53940fec3cb" />
 
-###Insights
+### Insights
 <img width="1573" height="868" alt="image" src="https://github.com/user-attachments/assets/39d2050f-c9ad-428b-adc6-c41905532d12" />
 
 
-##Tech stack
+## Tech stack
 Frontend: React + Vite + TypeScript, Tailwind CSS, Chart.js 
 Backend: Node.js + Express + TypeScript 
 ML Service: Python + FastAPI, scikit-learn (Random Forest classifier) 
 Database / Auth: Firebase (Firestore + Authentication, including Google Sign-In) 
 Chatbot: Groq API (Llama 3.3 70B)
 
-##Project structure
+## Project structure
 SmartBudget/
 ├── frontend/       React app (pages, components, chat widget)
 ├── backend/        Express API (auth verification, risk endpoint, chat endpoint)
@@ -49,7 +49,7 @@ SmartBudget/
 │   └── models/       Saved model + feature columns (.pkl files)
 └── README.md
 
-##How the ML actually works
+## How the ML actually works
 Two separate things are combined on purpose:
 Plain math (no ML needed): budget vs. spent, days left, safe daily pace. This is just arithmetic and is always accurate.
 ML prediction: a Random Forest classifier trained on features like mood while spending, day of week, percent of budget used, and recent spending trend. This is what predicts Low/Medium/High risk — catching patterns the simple math alone can't see (e.g., spending that spikes on weekends or during certain moods, even if the raw pace still looks fine).
@@ -202,12 +202,12 @@ Open the application at:
 http://localhost:5173
 ```
 
-##Known limitations
+## Known limitations
 The ML model is trained on synthetic data, not real user behavior. It's designed to mirror realistic patterns, but predictions will improve if retrained on accumulated real usage later.
 Firestore composite indexes are required for a few queries (expenses by user + timestamp, riskSnapshots by user + date). If you see a FAILED_PRECONDITION error mentioning an index, click the link in the error — Firestore auto-generates the correct index configuration.
 The chatbot's financial context is rebuilt fresh on every message (not cached), so responses always reflect current data, but this means each message re-queries Firestore.
 
-##Future improvements
+## Future improvements
 Retrain the model periodically on real logged user data as it accumulates
 Expose the model's actual feature importances via a FastAPI endpoint for a more precise "why" explanation on the Insights page
 Add category-level budget tracking to the risk model's features
